@@ -37,6 +37,10 @@ git clone --recurse-submodules https://github.com/apache/ossie-converters.git
 git submodule update --init
 ```
 
+Repository-level cross-converter acceptance and pairwise checks live in
+[`interop/`](interop/README.md). The matrix registers all 24 converter projects,
+with explicit capability skips, JSON/Markdown reports, and intermediate artifacts.
+
 Contributions follow the Apache Ossie
 [contribution guide](https://github.com/apache/ossie/blob/main/CONTRIBUTING.md).
 
@@ -89,6 +93,7 @@ Read an Ossie semantic model and produce the equivalent vendor-specific represen
 - Ossie → dbt `semantic_models` YAML
 - Ossie → Tableau data source / Salesforce semantic layer
 - Ossie → Databricks semantic layer definition
+- Ossie → LookML (Looker / BigQuery)
 
 ### Import (Vendor → Apache Ossie)
 
@@ -104,6 +109,7 @@ The Ossie specification currently defines extensions for the following vendors:
 | `SALESFORCE` | Salesforce / Tableau semantic layer |
 | `DBT` | dbt semantic models |
 | `DATABRICKS` | Databricks semantic layer |
+| `BIGQUERY` | Looker / LookML (Google Cloud semantic layer over BigQuery) |
 | `OMNI` | Omni semantic model |
 | `WISDOM` | WisdomAI domain |
 | `NVIDIA_AUTO_ONTOLOGY` | NVIDIA Auto Ontology model document YAML (formerly `NVIDIA_GSF`) |
@@ -112,6 +118,8 @@ The Ossie specification currently defines extensions for the following vendors:
 | `CUBE` | Cube data model |
 | `HEX` | Hex semantic project |
 | `HOLISTICS` | Holistics AML dataset |
+| `ATLAN` | Atlan metric registry records |
+| `LIGHTDASH` | Lightdash semantic layer (model files, or dbt `meta`) |
 
 [`wisdom-semantic-view`](wisdom-semantic-view/README.md) is a separate, fixture-scoped spoke. It reads one Snowflake semantic view, writes one Ossie document, writes a Wisdom domain-export JSON (format `1.0`), and reverses that path. It keeps metric synonyms and `module_custom_instructions.sql_generation`. It does not call `snowflake` (Cortex Analyst export only) or `wisdom` (that spoke drops synonyms and field or metric `ai_context`).
 
@@ -297,7 +305,7 @@ A converter should map `ai_context` when the target vendor supports equivalent c
 | Composite primary keys | Ensure the vendor format supports composite keys; if not, flatten or document the limitation |
 | Cross-dataset metrics referencing multiple tables | Ensure all referenced datasets exist and relationships are defined; resolve qualified column names |
 | Custom extensions with unknown vendor | Ignore (do not discard) — preserve for round-tripping |
-| `ai_context` on a vendor that doesn't support it | Store in a `custom_extension` with `vendor_name: COMMON` to preserve for round-tripping |
+| `ai_context` on a vendor that doesn't support it | Store in a `custom_extension` under the converter's own vendor name (see [`extensions/vendors.md`](https://github.com/apache/ossie/blob/main/extensions/vendors.md)) to preserve for round-tripping; there is no shared cross-vendor token |
 
 ### Round-Trip Fidelity
 

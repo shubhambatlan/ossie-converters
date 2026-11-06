@@ -261,6 +261,78 @@ class OssiePolarisConverterTest {
         assertEquals("catalog.ns.orders", properties.get("ossie.source").asText());
     }
 
+    @Test
+    void testExportWarnsWhenSemanticsAreDropped() {
+        OssieModelParser parser = new OssieModelParser();
+        OssieModel model = parser.parse(
+                new ByteArrayInputStream(MINIMAL_MODEL.getBytes(StandardCharsets.UTF_8)));
+        PolarisExporter exporter = new PolarisExporter(
+                new PolarisClient("http://localhost:8181", "test_catalog"));
+
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        try {
+            exporter.warnDroppedSemantics(model.getSemanticModel());
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        String err = buffer.toString(StandardCharsets.UTF_8);
+        assertTrue(err.contains("1 metric(s) not written"));
+        assertTrue(err.contains("1 relationship(s) not written"));
+        assertTrue(err.contains("field 'total_amount'"));
+        assertTrue(err.contains("field 'full_name'"));
+        assertFalse(err.contains("field 'order_id'"));
+        assertFalse(err.contains("ai_context"));
+    }
+
+    @Test
+    void testParseRecordsAiContextForExportWarning() {
+        String yaml = MINIMAL_MODEL + "ai_context:\n  instructions: use for sales\n";
+        OssieModelParser parser = new OssieModelParser();
+        OssieModel model = parser.parse(
+                new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)));
+        assertTrue(model.getSemanticModel().hadAiContext());
+
+        PolarisExporter exporter = new PolarisExporter(
+                new PolarisClient("http://localhost:8181", "test_catalog"));
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        try {
+            exporter.warnDroppedSemantics(model.getSemanticModel());
+        } finally {
+            System.setErr(originalErr);
+        }
+        assertTrue(buffer.toString(StandardCharsets.UTF_8).contains("ai_context was dropped"));
+    }
+
+    @Test
+    void testExportDoesNotWarnOnColumnNameExpressions() {
+        SemanticModel semanticModel = new SemanticModel();
+        semanticModel.setName("m");
+        Dataset dataset = new Dataset();
+        dataset.setName("orders");
+        Field orderId = new Field();
+        orderId.setName("order_id");
+        orderId.setExpressions(Collections.singletonList(new DialectExpression("ANSI_SQL", "order_id")));
+        dataset.setFields(Collections.singletonList(orderId));
+        semanticModel.setDatasets(Collections.singletonList(dataset));
+
+        PolarisExporter exporter = new PolarisExporter(
+                new PolarisClient("http://localhost:8181", "test_catalog"));
+        PrintStream originalErr = System.err;
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        try {
+            exporter.warnDroppedSemantics(semanticModel);
+        } finally {
+            System.setErr(originalErr);
+        }
+        assertEquals("", buffer.toString(StandardCharsets.UTF_8));
+    }
+
     // -- Importer tests (Iceberg metadata parsing) --------------------------
 
     @Test
@@ -314,6 +386,12 @@ class OssiePolarisConverterTest {
         assertTrue(ds.getFields().get(4).isTime());
         assertEquals("Opaque", ds.getFields().get(5).getDatatype());
 
+        // Table properties are Polaris state, so they go under the Polaris vendor name.
+        assertEquals(1, ds.getCustomExtensions().size());
+        assertEquals("POLARIS", ds.getCustomExtensions().get(0).getVendorName());
+        assertEquals("test_user",
+                mapper.readTree(ds.getCustomExtensions().get(0).getData()).path("owner").asText());
+
         JsonNode tagsExtension = mapper.readTree(
                 ds.getFields().get(5).getCustomExtensions().get(0).getData());
         assertEquals("list", tagsExtension.path("iceberg_type").path("type").asText());
@@ -338,6 +416,7 @@ class OssiePolarisConverterTest {
         assertTrue(yaml.contains("datatype: Decimal"));
         assertTrue(yaml.contains("datatype: Opaque"));
         assertTrue(yaml.contains("vendor_name: POLARIS"));
+        assertFalse(yaml.contains("vendor_name: COMMON"));
 
         // Reparse the generated Ossie YAML and export it again. Exact physical
         // distinctions survive, while nested IDs are regenerated for the new schema.
